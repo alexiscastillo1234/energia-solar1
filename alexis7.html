@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calculadora de Radiacion Solar y Estadistica</title>
+    <!-- Link a Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <!-- Se incluye Plotly.js -->
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <!-- Se incluye XLSX para leer archivos de Excel -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>Radiacion Solar y Calculos Estadisticos</h1>
+
+        <!-- Seccion de Radiacion Solar -->
+        <div>
+            <p>Selecciona en cualquier punto del mapa para saber la radiacion solar.</p>
+            <div id="map" style="height: 500px; width: 800px;"></div>
+            <div class="resultados" style="display: none;">
+                <h2 class="resultados-titulo">Datos de Radiacion Solar</h2>
+                <div id="datos-meteorologicos">
+                    <p>Los datos de radiacion solar se mostraran aqui.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Seccion de Calculos Estadisticos -->
+        <h2>Calculos Estadisticos</h2>
+        <p>Introduce  el conjunto de numeros separados por un espacio</p>
+        <textarea id="numeros" placeholder="1 2 3 4 5 6 7 8 9"></textarea>
+        
+        <br>
+        <label for="excelFile">selecciona tu archivo excel</label>
+        <input type="file" id="excelFile" accept=".xlsx, .xls" multiple>
+        
+        <br><br>
+        <label for="tipoGrafica">Selecciona el tipo de grafica:</label>
+        <select id="tipoGrafica">
+            <option value="histograma">Histograma</option>
+            <option value="caja y bigote">Caja y Bigote</option>
+            <option value="xy">XY</option>
+            <option value="tendencia">Tendencia</option>
+        </select>
+
+        <br>
+        <button id="calcular" type="button">Calcular</button><br>
+        
+        <div class="resultados-titulo">
+            <h3>Resultados:</h3>
+        </div>
+        <div class="resultados">
+            <div class="dataset-results" id="dataset0">
+                <h4>Datos 1</h4>
+                <p>Media: <span id="media0"></span></p>
+                <p>Moda: <span id="moda0"></span></p>
+                <p>Mediana: <span id="mediana0"></span></p>
+                <p>Varianza: <span id="varianza0"></span></p>
+                <p>Desviacin Estndar: <span id="desviacion0"></span></p>
+                <p>Q1: <span id="q10"></span></p>
+                <p>Q2 (Mediana): <span id="q20"></span></p>
+                <p>Q3: <span id="q30"></span></p>
+                <p>Sesgo: <span id="sesgo0"></span></p>
+                <p>Curtosis: <span id="curtosis0"></span></p>
+            </div>
+        </div>
+
+        <!-- Contenedor para las graficas -->
+        <div id="grafica-container" style="height: 400px; width: 100%; margin-top: 30px;"></div>
+    </div>
+
+    <!-- Script de Leaflet -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Script personalizado -->
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            // Inicializa el mapa
+            let map = L.map('map').setView([19.702187, -101.2034349], 10); // El mapa por defecto apunta a Morelia
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+            // Marcapasos para ubicaciones clickeadas
+            let marker = null;
+
+            map.on('click', function(e) {
+                // Elimina el marcador anterior
+                if (marker) {
+                    map.removeLayer(marker);
+                }
+
+                // Agrega nuevo marcador en la ubicacion clickeada
+                marker = L.marker(e.latlng).addTo(map);
+
+                // Obtener radiacin
+                fetchRadiation(e.latlng.lat, e.latlng.lng);
+            });
+        });
+
+        async function fetchRadiation(lat, lon) {
+            const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=shortwave_radiation,direct_radiation,diffuse_radiation&timezone=America/Mexico_City`;
+
+            try {
+                const respuesta = await fetch(url);
+                const datos = await respuesta.json();
+                
+                if (datos && datos.current) {
+                    displayRadiation(datos);
+                }
+            } catch (error) {
+                console.error('Error al obtener los datos:', error);
+            }
+        }
+
+        function displayRadiation(data) {
+            const resultsDiv = document.querySelector('.resultados');
+            const resultsContent = document.getElementById('datos-meteorologicos');
+            const resultsTitle = document.querySelector('.resultados-titulo');
+
+            resultsDiv.style.display = 'block';
+            resultsTitle.style.display = 'block';
+
+            resultsContent.innerHTML = `
+                <table>
+                    <tr>
+                        <p>Fecha: ${new Date().toLocaleDateString()}</p>
+                        <p>Hora: ${new Date().toLocaleTimeString()}</p>
+                        <p>Radiacin Solar: ${data.current.shortwave_radiation} W/m</p>
+                    </tr>
+                </table>
+            `;
+        }
+
+        // Funci n que lee los datos del archivo Excel
+        function leerArchivoExcel(event) {
+            let archivo = event.target.files[0];
+            let lector = new FileReader();
+
+            lector.onload = function(e) {
+                let datos = e.target.result;
+                let libro = XLSX.read(datos, {type: 'binary'});
+                let hoja = libro.Sheets[libro.SheetNames[0]];
+                let rango = XLSX.utils.sheet_to_json(hoja, {header: 1});
+
+                let valores = [];
+                for (let i = 0; i < rango.length; i++) {
+                    for (let j = 0; j < rango[i].length; j++) {
+                        if (!isNaN(rango[i][j])) {
+                            valores.push(rango[i][j]);
+                        }
+                    }
+                }
+                return valores;
+            };
+            lector.readAsBinaryString(archivo);
+        }
+
+        // Funci n para calcular estadasticas
+        function calcularEstadisticas(datos) {
+            let media = promedio(datos);
+            let moda = calcularModa(datos);
+            let mediana = calcularMediana(datos);
+            let varianza = calcularVarianza(datos, media);
+            let desviacion = Math.sqrt(varianza);
+            let q1 = calcularCuartil(datos, 0.25);
+            let q2 = calcularCuartil(datos, 0.50);  // Mediana es Q2
+            let q3 = calcularCuartil(datos, 0.75);
+            let sesgo = calcularSesgo(datos, media, desviacion);
+            let curtosis = calcularCurtosis(datos, media, desviacion);
+            
+            // Mostrar resultados en el HTML
+            document.getElementById("media0").textContent = media;
+            document.getElementById("moda0").textContent = moda.join(", ");
+            document.getElementById("mediana0").textContent = mediana;
+            document.getElementById("varianza0").textContent = varianza;
+            document.getElementById("desviacion0").textContent = desviacion;
+            document.getElementById("q10").textContent = q1;
+            document.getElementById("q20").textContent = q2;
+            document.getElementById("q30").textContent = q3;
+            document.getElementById("sesgo0").textContent = sesgo;
+            document.getElementById("curtosis0").textContent = curtosis;
+
+            // Graficar seg n el tipo seleccionado
+            graficar(datos);
+        }
+
+        // Funci n para calcular la media
+        function promedio(datos) {
+            return datos.reduce((a, b) => a + b, 0) / datos.length;
+        }
+
+        // Funci n para calcular la moda
+        function calcularModa(datos) {
+            const count = {};
+            datos.forEach(num => count[num] = (count[num] || 0) + 1);
+            let maxCount = Math.max(...Object.values(count));
+            return Object.keys(count).filter(key => count[key] === maxCount).map(Number);
+        }
+
+        // Funci n para calcular la mediana
+        function calcularMediana(datos) {
+            datos.sort((a, b) => a - b);
+            let mitad = Math.floor(datos.length / 2);
+            return datos.length % 2 === 0 ? (datos[mitad - 1] + datos[mitad]) / 2 : datos[mitad];
+        }
+
+        // Funci n para calcular la varianza
+        function calcularVarianza(datos, media) {
+            return datos.reduce((acc, val) => acc + Math.pow(val - media, 2), 0) / datos.length;
+        }
+
+        // Funci n para calcular el cuartil
+        function calcularCuartil(datos, q) {
+            datos.sort((a, b) => a - b);
+            let pos = (datos.length - 1) * q;
+            let base = Math.floor(pos);
+            let resto = pos - base;
+            return datos[base] + resto * (datos[base + 1] - datos[base]);
+        }
+
+        // Funci n para calcular el sesgo
+        function calcularSesgo(datos, media, desviacion) {
+            let n = datos.length;
+            return n / ((n - 1) * (n - 2)) * datos.reduce((acc, val) => acc + Math.pow((val - media) / desviacion, 3), 0);
+        }
+
+        // Funci n para calcular la curtosis
+        function calcularCurtosis(datos, media, desviacion) {
+            let n = datos.length;
+            return (n * (n + 1) * datos.reduce((acc, val) => acc + Math.pow((val - media) / desviacion, 4), 0)) / ((n - 1) * (n - 2) * (n - 3)) - (3 * Math.pow(n - 1, 2)) / ((n - 2) * (n - 3));
+        }
+
+        function graficar(datos) {
+            const tipo = document.getElementById("tipoGrafica").value;
+
+            let trace;
+            if (tipo === "histograma") {
+                trace = {
+                    x: datos,
+                    type: 'histogram',
+                    histnorm: 'probability'
+                };
+            } else if (tipo === "caja y bigote") {
+                trace = {
+                    y: datos,
+                    type: 'box'
+                };
+            } else if (tipo === "xy") {
+                trace = {
+                    x: Array.from({ length: datos.length }, (_, i) => i),
+                    y: datos,
+                    mode: 'markers',
+                    type: 'scatter'
+                };
+            } else if (tipo === "tendencia") {
+                trace = {
+                    x: Array.from({ length: datos.length }, (_, i) => i),
+                    y: datos,
+                    mode: 'lines',
+                    type: 'scatter'
+                };
+            }
+
+            const layout = {
+                title: 'Grafica Estadistica',
+                xaxis: { title: 'Datos' },
+                yaxis: { title: 'Valor' }
+            };
+
+            Plotly.newPlot('grafica-container', [trace], layout);
+        }
+
+        // Funci n que se llama al hacer click en el bot n Calcular
+        document.getElementById("calcular").onclick = () => {
+            const inputDatos = document.getElementById("numeros").value.trim();
+
+            if (inputDatos !== "") {
+                const datos = inputDatos.split(" ").map(num => parseFloat(num)).filter(num => !isNaN(num));
+                calcularEstadisticas(datos);
+            } else {
+                alert("Por favor, ingresa datos en el campo de texto.");
+            }
+        };
+
+        // Asociar la funcion a los archivos de Excel subidos
+        document.getElementById("excelFile").addEventListener("change", leerArchivoExcel);
+    </script>
+</body>
+</html>
